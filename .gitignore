@@ -1,0 +1,3 @@
+# Ignore the (no_)vendor directory since it's only renamed to not be used
+vendor/
+no_vendor/

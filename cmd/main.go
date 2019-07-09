@@ -40,10 +40,32 @@ func randUser() string {
 }
 
 func main() {
+	const defaultMsgNum = 1
+	const defaultMsgInterval = 2000
+	const defaultBlockSize = 1
+
 	generate := flag.Bool("g", false, "Generate the state file and then run client.")
 	cfgFile := flag.String("f", "katzenpost.toml", "Path to the client config file.")
 	stateFile := flag.String("s", "catshadow_statefile", "The catshadow state file path.")
+	spawnShell := flag.Bool("shell", false, "Spawns a shell to interact with the catshadow client")
+	message := flag.String("m", "", "Text you want to send as message")
+	nickName := flag.String("n", "", "Nickname of recipient you want to send a message to")
+	messageNum := flag.Int64("num", defaultMsgNum, "Total number of messages you want to send" )
+	interval := flag.Int64("i", defaultMsgInterval, "Interval between two blocks of messages being sent [in ms] (default 2000ms)")
+	blockSize := flag.Int64("b", defaultBlockSize, "Number of messages sent at a time (default 1)")
 	flag.Parse()
+
+	//Check for invalid input and possibly return
+	if (*message != "") != (*nickName != "") {
+		fmt.Println("You set one of message (-m) and nickName (-n) flags without the other, that doesn't work")
+		return
+	}
+	if (*message == "") || (*nickName == "") {
+		if *messageNum != defaultMsgNum || *interval != defaultMsgInterval || *blockSize != defaultBlockSize {
+			fmt.Println("To set flags -num, -i and -b you need to specify both message (-m) and nickname (-n)")
+			return
+		}
+	}
 
 	// Set the umask to something "paranoid".
 	syscall.Umask(0077)
@@ -110,7 +132,15 @@ func main() {
 	fmt.Println("state worker started")
 	catShadowClient.Start()
 	fmt.Println("catshadow worker started")
-	fmt.Println("starting shell")
-	shell := NewShell(catShadowClient, c.GetLogger("catshadow_shell"))
-	shell.Run()
+	if *message != "" && *nickName != "" {
+		fmt.Println("Sending message...")
+		catShadowClient.SendMessage(*nickName, []byte(*message))
+		catShadowClient.Shutdown() // ensures that client shuts down properly - waits for pending messages to be sent
+		fmt.Println("Sent message to recipient with nickname: ", *nickName)
+	}
+	if *spawnShell {
+		fmt.Println("starting shell")
+		shell := NewShell(catShadowClient, c.GetLogger("catshadow_shell"))
+		shell.Run()
+	}
 }
