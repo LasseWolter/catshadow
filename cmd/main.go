@@ -19,15 +19,16 @@ package main
 import (
 	"flag"
 	"fmt"
-	"os"
-	"syscall"
-
 	"github.com/katzenpost/catshadow"
 	"github.com/katzenpost/client"
 	"github.com/katzenpost/client/config"
 	"github.com/katzenpost/core/crypto/ecdh"
 	"github.com/katzenpost/core/crypto/rand"
 	"golang.org/x/crypto/ssh/terminal"
+	"math"
+	"os"
+	"syscall"
+	"time"
 )
 
 func randUser() string {
@@ -50,9 +51,9 @@ func main() {
 	spawnShell := flag.Bool("shell", false, "Spawns a shell to interact with the catshadow client")
 	message := flag.String("m", "", "Text you want to send as message")
 	nickName := flag.String("n", "", "Nickname of recipient you want to send a message to")
-	messageNum := flag.Int64("num", defaultMsgNum, "Total number of messages you want to send" )
-	interval := flag.Int64("i", defaultMsgInterval, "Interval between two blocks of messages being sent [in ms] (default 2000ms)")
-	blockSize := flag.Int64("b", defaultBlockSize, "Number of messages sent at a time (default 1)")
+	messageNum := flag.Int("num", defaultMsgNum, "Total number of messages you want to send")
+	interval := flag.Int("i", defaultMsgInterval, "Interval between two blocks of messages being sent [in ms]")
+	blockSize := flag.Int("b", defaultBlockSize, "Number of messages sent at a time")
 	flag.Parse()
 
 	//Check for invalid input and possibly return
@@ -133,10 +134,18 @@ func main() {
 	catShadowClient.Start()
 	fmt.Println("catshadow worker started")
 	if *message != "" && *nickName != "" {
-		fmt.Println("Sending message...")
-		catShadowClient.SendMessage(*nickName, []byte(*message))
+		fmt.Printf("About to send %v messages in blocks of %v - time between message blocks: %vms\n", *messageNum, *blockSize, *interval)
+		if *messageNum != defaultMsgNum {
+			blockNum := math.Floor(float64(*messageNum) / float64(*blockSize))
+			for i := 0; i < int(blockNum); i++ {
+				time.Sleep(time.Duration(*interval) * time.Millisecond)
+				for b := 0; b < *blockSize; b++ {
+					catShadowClient.SendMessage(*nickName, []byte(*message))
+				}
+			}
+		}
 		catShadowClient.Shutdown() // ensures that client shuts down properly - waits for pending messages to be sent
-		fmt.Println("Sent message to recipient with nickname: ", *nickName)
+		fmt.Println("Finished sending all messages.")
 	}
 	if *spawnShell {
 		fmt.Println("starting shell")
