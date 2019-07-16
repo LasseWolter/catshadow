@@ -120,7 +120,7 @@ func New(logBackend *log.Backend, mixnetClient *client.Client, stateWorker *Stat
 	c := &Client{
 		pandaChan:         make(chan panda.PandaUpdate),
 		addContactChan:    make(chan addContact),
-		sendMessageChan:   make(chan sendMessage),
+		sendMessageChan:   make(chan sendMessage, 5),
 		removeContactChan: make(chan string),
 		contacts:          make(map[uint64]*Contact),
 		contactNicknames:  make(map[string]*Contact),
@@ -152,6 +152,17 @@ func New(logBackend *log.Backend, mixnetClient *client.Client, stateWorker *Stat
 func (c *Client) Start() {
 	c.Go(c.worker)
 	c.Go(c.readInboxWorker)
+}
+
+// Returns if there are any pending contacts for this client
+func (c *Client) AnyPendingContacts() bool{
+	anyPending := false
+	for _,con := range c.contacts {
+		if (*con).isPending {
+			anyPending = true
+		}
+	}
+	return anyPending
 }
 
 // CreateRemoteSpool creates a remote spool for collecting messages

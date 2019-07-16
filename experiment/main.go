@@ -8,6 +8,7 @@ import (
 	"github.com/katzenpost/core/crypto/ecdh"
 	"github.com/katzenpost/core/crypto/rand"
 	"os"
+	"time"
 )
 
 func randUser() string {
@@ -37,13 +38,13 @@ func main() {
 	}
 
 	// Decrypt and load the state file.
-	fmt.Print("Enter statefile decryption passphrase: ")
+	fmt.Print("Taking hardcoded statefile decryption passphrase")
 	recPassphrase := []byte("test") // hardcode passphrase to test for now
 	fmt.Print("\n")
 
 	var recStateWorker *catshadow.StateWriter
 	var recState *catshadow.State
-	var recCatShadowClient *catshadow.Client
+	var receiver *catshadow.Client
 	recC, err := client.New(recCfg)
 	if err != nil {
 		panic(err)
@@ -54,7 +55,7 @@ func main() {
 		if err != nil {
 			panic(err)
 		}
-		recCatShadowClient, err = catshadow.New(recC.GetBackendLog(), recC, recStateWorker, recState)
+		receiver, err = catshadow.New(recC.GetBackendLog(), recC, recStateWorker, recState)
 		if err != nil {
 			panic(err)
 		}
@@ -74,7 +75,7 @@ func main() {
 			panic(err)
 		}
 		fmt.Println("creating remote message receiver spool")
-		recCatShadowClient, err = catshadow.NewClientAndRemoteSpool(recC.GetBackendLog(), recC, recStateWorker, user, linkKey)
+		receiver, err = catshadow.NewClientAndRemoteSpool(recC.GetBackendLog(), recC, recStateWorker, user, linkKey)
 		if err != nil {
 			panic(err)
 		}
@@ -82,7 +83,7 @@ func main() {
 	}
 	recStateWorker.Start()
 	fmt.Println("state worker started")
-	recCatShadowClient.Start()
+	receiver.Start()
 	fmt.Println("catshadow worker started")
 
 	//----------------------------------
@@ -96,13 +97,13 @@ func main() {
 	}
 
 	// Decrypt and load the state file.
-	fmt.Print("Enter statefile decryption passphrase: ")
+	fmt.Print("Taking hardcoded statefile decryption passphrase")
 	sendPassphrase := []byte("test") // hardcode passphrase to test for now
 	fmt.Print("\n")
 
 	var sendStateWorker *catshadow.StateWriter
 	var sendState *catshadow.State
-	var sendCatShadowClient *catshadow.Client
+	var sender *catshadow.Client
 	sendC, err := client.New(sendCfg)
 	if err != nil {
 		panic(err)
@@ -113,7 +114,7 @@ func main() {
 		if err != nil {
 			panic(err)
 		}
-		sendCatShadowClient, err = catshadow.New(sendC.GetBackendLog(), sendC, sendStateWorker, sendState)
+		sender, err = catshadow.New(sendC.GetBackendLog(), sendC, sendStateWorker, sendState)
 		if err != nil {
 			panic(err)
 		}
@@ -133,7 +134,7 @@ func main() {
 			panic(err)
 		}
 		fmt.Println("creating remote message receiver spool")
-		sendCatShadowClient, err = catshadow.NewClientAndRemoteSpool(sendC.GetBackendLog(), sendC, sendStateWorker, user, linkKey)
+		sender, err = catshadow.NewClientAndRemoteSpool(sendC.GetBackendLog(), sendC, sendStateWorker, user, linkKey)
 		if err != nil {
 			panic(err)
 		}
@@ -141,7 +142,27 @@ func main() {
 	}
 	sendStateWorker.Start()
 	fmt.Println("state worker started")
-	sendCatShadowClient.Start()
+	sender.Start()
 	fmt.Println("catshadow worker started")
 
+	// Adding Recipient and Sender as contacts of one another
+	sender.NewContact("recipient", []byte("sender1"))
+	receiver.NewContact("sender1", []byte("sender1"))
+	time.Sleep(5 * time.Second)
+
+	// Wait until all contact exchanges are finished
+	rounds :=1
+	for {
+		rounds++
+		// Failsafe 60*sleep-interval timeout - in case something goes wrong
+		if rounds == 60 {
+			break
+		}
+		if !sender.AnyPendingContacts() && !receiver.AnyPendingContacts(){
+			break
+		}
+		time.Sleep(2*time.Second)
+	}
+	sender.Shutdown()
+	receiver.Shutdown()
 }
