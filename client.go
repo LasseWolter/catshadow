@@ -155,9 +155,9 @@ func (c *Client) Start() {
 }
 
 // Returns if there are any pending contacts for this client
-func (c *Client) AnyPendingContacts() bool{
+func (c *Client) AnyPendingContacts() bool {
 	anyPending := false
-	for _,con := range c.contacts {
+	for _, con := range c.contacts {
 		if (*con).isPending {
 			anyPending = true
 		}
@@ -383,6 +383,14 @@ func (c *Client) doSendMessage(nickname string, message []byte) {
 		c.log.Errorf("double ratchet channel write failure: %s", err)
 	}
 	c.log.Info("Sent message to %s.", nickname)
+}
+
+func (c *Client) DoSendDropMsg() {
+	err := c.session.SendDropDecoy()
+	if err != nil {
+		c.log.Errorf("Error sending DIRECT drop decoy: %s", err)
+	}
+	c.log.Info("Sent DIRECT drop decoy message")
 }
 
 // GetInbox returns the Client's inbox.
