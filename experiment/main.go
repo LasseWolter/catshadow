@@ -21,40 +21,28 @@ func randUser() string {
 	return fmt.Sprintf("%x", user[:])
 }
 
-func main() {
-	// Config flags
-	sendCfgFile := "alice.toml"
-	sendStateFile := "sender"
-
-	//----------------------------------
-	// SENDER SETUP
-	//----------------------------------
-	// Load Sender config file.
-	sendCfg, err := config.LoadFile(sendCfgFile)
-	if err != nil {
-		_, _ = fmt.Fprintf(os.Stderr, "Failed to load config file '%v': %v\n", sendCfgFile, err)
-		os.Exit(-1)
-	}
+// Creates a new catshadow client and returns the client
+func createClient(cfg *config.Config, stateFile string) *catshadow.Client {
 
 	// Decrypt and load the state file.
 	fmt.Print("Taking hardcoded statefile decryption passphrase")
 	sendPassphrase := []byte("test") // hardcode passphrase to test for now
 	fmt.Print("\n")
 
-	var sendStateWorker *catshadow.StateWriter
-	var sendState *catshadow.State
-	var sender *catshadow.Client
-	sendC, err := client.New(sendCfg)
+	var stateWorker *catshadow.StateWriter
+	var state *catshadow.State
+	var cli *catshadow.Client
+	sendC, err := client.New(cfg)
 	if err != nil {
 		panic(err)
 	}
 	// Check if statefile already exists, if not create one
-	if _, err := os.Stat(sendStateFile); !os.IsNotExist(err) {
-		sendStateWorker, sendState, err = catshadow.LoadStateWriter(sendC.GetLogger("catshadow_sendState"), sendStateFile, sendPassphrase)
+	if _, err := os.Stat(stateFile); !os.IsNotExist(err) {
+		stateWorker, state, err = catshadow.LoadStateWriter(sendC.GetLogger("catshadow_state"), stateFile, sendPassphrase)
 		if err != nil {
 			panic(err)
 		}
-		sender, err = catshadow.New(sendC.GetBackendLog(), sendC, sendStateWorker, sendState)
+		cli, err = catshadow.New(sendC.GetBackendLog(), sendC, stateWorker, state)
 		if err != nil {
 			panic(err)
 		}
@@ -63,28 +51,48 @@ func main() {
 		if err != nil {
 			panic(err)
 		}
-		fmt.Println("registering client with mixnet Provider")
+		fmt.Println("registering cli with mixnet Provider")
 		user := randUser()
-		err = client.RegisterClient(sendCfg, user, linkKey.PublicKey())
+		err = client.RegisterClient(cfg, user, linkKey.PublicKey())
 		if err != nil {
 			panic(err)
 		}
-		sendStateWorker, err = catshadow.NewStateWriter(sendC.GetLogger("catshadow_sendState"), sendStateFile, sendPassphrase)
+		stateWorker, err = catshadow.NewStateWriter(sendC.GetLogger("catshadow_state"), stateFile, sendPassphrase)
 		if err != nil {
 			panic(err)
 		}
 		fmt.Println("creating remote message receiver spool")
-		sender, err = catshadow.NewClientAndRemoteSpool(sendC.GetBackendLog(), sendC, sendStateWorker, user, linkKey)
+		cli, err = catshadow.NewClientAndRemoteSpool(sendC.GetBackendLog(), sendC, stateWorker, user, linkKey)
 		if err != nil {
 			panic(err)
 		}
-		fmt.Println("catshadow client successfully created")
+		fmt.Println("catshadow cli successfully created")
 	}
-	sendStateWorker.Start()
+	stateWorker.Start()
 	fmt.Println("state worker started")
-	sender.Start()
+	cli.Start()
 	fmt.Println("catshadow worker started")
-	expDuration := time.Duration(sendCfg.Experiment.Duration) * time.Minute
+
+	return cli
+}
+
+func main() {
+	// Config flags
+	sendCfgFile := "alice.toml"
+	sendStateFile := "sender"
+
+	// Load Sender config file.
+	cfg, err := config.LoadFile(sendCfgFile)
+	if err != nil {
+		_, _ = fmt.Fprintf(os.Stderr, "Failed to load config file '%v': %v\n", sendCfgFile, err)
+		os.Exit(-1)
+	}
+
+	// Create client(s)
+	sender := createClient(cfg, sendStateFile)
+
+	// Start Experiment
+	expDuration := time.Duration(cfg.Experiment.Duration) * time.Minute
 	startTime := time.Now()
 	// Display Header of Experiment
 	printFigure("Mixnet", "epic")
