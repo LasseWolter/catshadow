@@ -85,16 +85,26 @@ func main() {
 	sender.Start()
 	fmt.Println("catshadow worker started")
 	expDuration := time.Duration(sendCfg.Experiment.Duration) * time.Minute
+	startTime := time.Now()
 	// Display Header of Experiment
 	printFigure("Mixnet", "epic")
 	printFigure("Experiment", "epic")
 
 	// Wait for expDuration - the sending happens automatically when lambdaP triggers
-	fmt.Printf("\nThe experiment will run for %v\n", expDuration)
+	fmt.Printf("\nThe experiment will run for %v\nIt'll finish at: %v\n", expDuration, startTime.Add(expDuration))
 	fmt.Println("Messages are sent according to a Poisson Process")
+	// Update output on regular intervals to display how long the experiment will last for
+	ticker := time.NewTicker(1 * time.Minute)
+	go func() {
+		for range ticker.C {
+			fmt.Printf("The experiment will finish in %v\n", time.Until(startTime.Add(expDuration)).Truncate(1*time.Second))
+		}
+	}()
 	time.Sleep(expDuration)
-	sender.Shutdown()
 
+	// Experiment finished, stop everything
+	ticker.Stop()
+	sender.Shutdown()
 }
 
 // Prints string in given font as Ascii-Art
