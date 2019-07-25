@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"github.com/common-nighthawk/go-figure"
 	"github.com/katzenpost/catshadow"
@@ -33,6 +34,7 @@ func createClient(cfg *config.Config, stateFile string) *catshadow.Client {
 	var state *catshadow.State
 	var cli *catshadow.Client
 	sendC, err := client.New(cfg)
+
 	if err != nil {
 		panic(err)
 	}
@@ -69,27 +71,33 @@ func createClient(cfg *config.Config, stateFile string) *catshadow.Client {
 		fmt.Println("catshadow cli successfully created")
 	}
 	stateWorker.Start()
-	fmt.Println("state worker started")
+	fmt.Println("state worker started for: ", stateFile)
 	cli.Start()
-	fmt.Println("catshadow worker started")
+	fmt.Println("catshadow worker started for: ", stateFile)
 
 	return cli
 }
 
 func main() {
-	// Config flags
-	sendCfgFile := "alice.toml"
-	sendStateFile := "sender"
+	cfgFile := flag.String("f", "alice.toml", "Path to the client config file")
+	flag.Parse()
 
 	// Load Sender config file.
-	cfg, err := config.LoadFile(sendCfgFile)
+	cfg, err := config.LoadFile(*cfgFile)
 	if err != nil {
-		_, _ = fmt.Fprintf(os.Stderr, "Failed to load config file '%v': %v\n", sendCfgFile, err)
+		_, _ = fmt.Fprintf(os.Stderr, "Failed to load config file '%v': %v\n", *cfgFile, err)
 		os.Exit(-1)
 	}
 
 	// Create client(s)
-	sender := createClient(cfg, sendStateFile)
+	//c1 := createClient(cfg, "c1")
+	//c2 := createClient(cfg, "c2")
+	clients := make(map[string]*catshadow.Client)
+
+	for _, c := range cfg.Client {
+		cli := createClient(cfg, c.Name)
+		clients[c.Name] = cli
+	}
 
 	// Start Experiment
 	expDuration := time.Duration(cfg.Experiment.Duration) * time.Minute
@@ -102,17 +110,36 @@ func main() {
 	fmt.Printf("\nThe experiment will run for %v\nIt'll finish at: %v\n", expDuration, startTime.Add(expDuration))
 	fmt.Println("Messages are sent according to a Poisson Process")
 	// Update output on regular intervals to display how long the experiment will last for
-	ticker := time.NewTicker(1 * time.Minute)
+	ticker := time.NewTicker(30 * time.Second)
 	go func() {
 		for range ticker.C {
 			fmt.Printf("The experiment will finish in %v\n", time.Until(startTime.Add(expDuration)).Truncate(1*time.Second))
 		}
 	}()
-	time.Sleep(expDuration)
 
-	// Experiment finished, stop everything
-	ticker.Stop()
-	sender.Shutdown()
+	// Add async tasks for LambdaP updates according to the config file
+	for _, c := range cfg.Client {
+		for _, update := range c.Update {
+			go func() {
+				delay := time.Duration(update.Time) * time.Minute
+				<-time.After(time.Until(startTime.Add(delay)))
+				clients[c.Name].SetLambdaP(update.LambdaP, update.LambdaPMaxDelay)
+				fmt.Printf("%v: SendRate Update.\n   -LambdaP: %v\n   -LambdaPMaxDelay: %v\n", c.Name, update.LambdaP, update.LambdaPMaxDelay)
+			}()
+		}
+	}
+
+	// Select blocks execution until one of it's cases is run - here there is only one case: if the experiment is over
+	select {
+	case <-time.After(time.Until(startTime.Add(expDuration))):
+		// Experiment finished, stop everything
+		fmt.Println("Experiment finished exiting...")
+		ticker.Stop()
+		for _, c := range clients {
+			c.Shutdown()
+		}
+	}
+
 }
 
 // Prints string in given font as Ascii-Art

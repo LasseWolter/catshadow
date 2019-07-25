@@ -393,6 +393,10 @@ func (c *Client) DoSendDropMsg() {
 	c.log.Info("Sent DIRECT drop decoy message")
 }
 
+func (c *Client) SetLambdaP(lambdaP float64, lambdaPMax uint64) {
+	c.session.SetLambdaP(lambdaP, lambdaPMax)
+}
+
 // GetInbox returns the Client's inbox.
 func (c *Client) GetInbox() []*Message {
 	c.inboxMutex.Lock()
