@@ -25,6 +25,11 @@ func randUser() string {
 // Creates a new catshadow client and returns the client
 func createClient(cfg *config.Config, stateFile string) *catshadow.Client {
 
+	// Remove existing statefile to guarantee clean environment
+	if _, err := os.Stat(stateFile); err == nil {
+		fmt.Printf("Removed existing statefile \"%v\" to start in a clean environment\n", stateFile)
+		_ = os.Remove(stateFile)
+	}
 	// Decrypt and load the state file.
 	fmt.Print("Taking hardcoded statefile decryption passphrase")
 	sendPassphrase := []byte("test") // hardcode passphrase to test for now
