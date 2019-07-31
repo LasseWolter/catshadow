@@ -55,32 +55,32 @@ func createClient(cfg *config.Config, stateFile string, try int) *catshadow.Clie
 	sendC, err := client.New(cfg)
 
 	if err != nil {
-		retryConnect(err, cfg, stateFile, try)
+		return retryConnect(err, cfg, stateFile, try)
 	}
 	// Check if statefile already exists, if not create one
 	if _, err := os.Stat(stateFile); !os.IsNotExist(err) {
 		stateWorker, state, err = catshadow.LoadStateWriter(sendC.GetLogger("catshadow_state"), stateFile, sendPassphrase)
 		if err != nil {
-			retryConnect(err, cfg, stateFile, try)
+			return retryConnect(err, cfg, stateFile, try)
 		}
 		cli, err = catshadow.New(sendC.GetBackendLog(), sendC, stateWorker, state)
 		if err != nil {
-			retryConnect(err, cfg, stateFile, try)
+			return retryConnect(err, cfg, stateFile, try)
 		}
 	} else { // Statefile doesn't yet exists - create one
 		linkKey, err := ecdh.NewKeypair(rand.Reader)
 		if err != nil {
-			retryConnect(err, cfg, stateFile, try)
+			return retryConnect(err, cfg, stateFile, try)
 		}
 		fmt.Println("registering cli with mixnet Provider")
 		user := randUser()
 		err = client.RegisterClient(cfg, user, linkKey.PublicKey())
 		if err != nil {
-			retryConnect(err, cfg, stateFile, try)
+			return retryConnect(err, cfg, stateFile, try)
 		}
 		stateWorker, err = catshadow.NewStateWriter(sendC.GetLogger("catshadow_state"), stateFile, sendPassphrase)
 		if err != nil {
-			retryConnect(err, cfg, stateFile, try)
+			return retryConnect(err, cfg, stateFile, try)
 		}
 		fmt.Println("creating remote message receiver spool")
 		cli, err = catshadow.NewClientAndRemoteSpool(sendC.GetBackendLog(), sendC, stateWorker, user, linkKey)
@@ -95,6 +95,14 @@ func createClient(cfg *config.Config, stateFile string, try int) *catshadow.Clie
 	fmt.Println("catshadow worker started for: ", stateFile)
 
 	return cli
+}
+
+// Allows logging a message for all clients as well as printing it to STDOUT
+func cliLog(clients map[string]*catshadow.Client, logMsg string) {
+	for name, cli := range clients {
+		cli.GetLogger().Infof("[EXPERIMENT][%v] %v", name, logMsg)
+	}
+	fmt.Println(logMsg)
 }
 
 func main() {
@@ -116,9 +124,11 @@ func main() {
 	for _, c := range cfg.Client {
 		cli := createClient(cfg, c.Name, 1)
 		clients[c.Name] = cli
+		cli.GetLogger().Infof("[EXPERIMENT][%v] Client successfully created", c.Name)
 	}
 
 	// Start Experiment
+	cliLog(clients, "All clients created, starting experiment.")
 	expDuration := time.Duration(cfg.Experiment.Duration) * time.Minute
 	startTime := time.Now()
 	// Display Header of Experiment
@@ -126,13 +136,15 @@ func main() {
 	printFigure("Experiment", "epic")
 
 	// Wait for expDuration - the sending happens automatically when lambdaP triggers
-	fmt.Printf("\nThe experiment will run for %v\nIt'll finish at: %v\n", expDuration, startTime.Add(expDuration))
+	logStr := fmt.Sprintf("\nThe experiment will run for %v\nIt'll finish at: %v\n", expDuration, startTime.Add(expDuration))
+	cliLog(clients, logStr)
 	fmt.Println("Messages are sent according to a Poisson Process")
 	// Update output on regular intervals to display how long the experiment will last for
 	ticker := time.NewTicker(30 * time.Second)
 	go func() {
 		for range ticker.C {
-			fmt.Printf("The experiment will finish in %v\n", time.Until(startTime.Add(expDuration)).Truncate(1*time.Second))
+			logStr := fmt.Sprintf("The experiment will finish in %v\n", time.Until(startTime.Add(expDuration)).Truncate(1*time.Second))
+			cliLog(clients, logStr)
 		}
 	}()
 
@@ -143,7 +155,8 @@ func main() {
 				delay := time.Duration(update.Time) * time.Minute
 				<-time.After(time.Until(startTime.Add(delay)))
 				clients[c.Name].SetLambdaP(update.LambdaP, update.LambdaPMaxDelay)
-				fmt.Printf("%v: SendRate Update.\n   -LambdaP: %v\n   -LambdaPMaxDelay: %v\n", c.Name, update.LambdaP, update.LambdaPMaxDelay)
+				logStr := fmt.Sprintf("%v: SendRate Update.\n   -LambdaP: %v\n   -LambdaPMaxDelay: %v\n", c.Name, update.LambdaP, update.LambdaPMaxDelay)
+				cliLog(clients, logStr)
 			}()
 		}
 	}
@@ -152,11 +165,14 @@ func main() {
 	select {
 	case <-time.After(time.Until(startTime.Add(expDuration))):
 		// Experiment finished, stop everything
-		fmt.Println("Sending finished. Stopped sending messages.")
+		cliLog(clients, "Sending finished. Stopped sending messages.")
 		ticker.Stop()
-		for _, c := range clients {
-			c.Shutdown()
-		}
+		return
+		// Unfortunately the shutdown command doesn't always complete which is why the return
+		// without proper shutdown is the safer option to guarantee that the experiment finishes and doesn't run forever
+		//for _,c := range clients {
+		//c.Shutdown()
+		//}
 	}
 
 }

@@ -165,6 +165,11 @@ func (c *Client) AnyPendingContacts() bool {
 	return anyPending
 }
 
+// Returns the logger
+func (c *Client) GetLogger() *logging.Logger {
+	return c.log
+}
+
 // CreateRemoteSpool creates a remote spool for collecting messages
 // destined to this Client.
 func (c *Client) CreateRemoteSpool() error {
