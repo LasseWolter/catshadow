@@ -22,8 +22,22 @@ func randUser() string {
 	return fmt.Sprintf("%x", user[:])
 }
 
+// Allows client to try creation several times before it throws a panic
+func retryConnect(err error, cfg *config.Config, stateFile string, try int) *catshadow.Client {
+	// Connection to provider failed 5 times
+	if try >= 5 {
+		panic(err)
+	}
+	// Retry connecting to provider
+	fmt.Println(err, " Retry client creation...")
+	_ = os.Remove(stateFile)
+	try++
+	return createClient(cfg, stateFile, try)
+
+}
+
 // Creates a new catshadow client and returns the client
-func createClient(cfg *config.Config, stateFile string) *catshadow.Client {
+func createClient(cfg *config.Config, stateFile string, try int) *catshadow.Client {
 
 	// Remove existing statefile to guarantee clean environment
 	if _, err := os.Stat(stateFile); err == nil {
@@ -41,37 +55,37 @@ func createClient(cfg *config.Config, stateFile string) *catshadow.Client {
 	sendC, err := client.New(cfg)
 
 	if err != nil {
-		panic(err)
+		retryConnect(err, cfg, stateFile, try)
 	}
 	// Check if statefile already exists, if not create one
 	if _, err := os.Stat(stateFile); !os.IsNotExist(err) {
 		stateWorker, state, err = catshadow.LoadStateWriter(sendC.GetLogger("catshadow_state"), stateFile, sendPassphrase)
 		if err != nil {
-			panic(err)
+			retryConnect(err, cfg, stateFile, try)
 		}
 		cli, err = catshadow.New(sendC.GetBackendLog(), sendC, stateWorker, state)
 		if err != nil {
-			panic(err)
+			retryConnect(err, cfg, stateFile, try)
 		}
 	} else { // Statefile doesn't yet exists - create one
 		linkKey, err := ecdh.NewKeypair(rand.Reader)
 		if err != nil {
-			panic(err)
+			retryConnect(err, cfg, stateFile, try)
 		}
 		fmt.Println("registering cli with mixnet Provider")
 		user := randUser()
 		err = client.RegisterClient(cfg, user, linkKey.PublicKey())
 		if err != nil {
-			panic(err)
+			retryConnect(err, cfg, stateFile, try)
 		}
 		stateWorker, err = catshadow.NewStateWriter(sendC.GetLogger("catshadow_state"), stateFile, sendPassphrase)
 		if err != nil {
-			panic(err)
+			retryConnect(err, cfg, stateFile, try)
 		}
 		fmt.Println("creating remote message receiver spool")
 		cli, err = catshadow.NewClientAndRemoteSpool(sendC.GetBackendLog(), sendC, stateWorker, user, linkKey)
 		if err != nil {
-			panic(err)
+
 		}
 		fmt.Println("catshadow cli successfully created")
 	}
@@ -100,7 +114,7 @@ func main() {
 	clients := make(map[string]*catshadow.Client)
 
 	for _, c := range cfg.Client {
-		cli := createClient(cfg, c.Name)
+		cli := createClient(cfg, c.Name, 1)
 		clients[c.Name] = cli
 	}
 
@@ -138,7 +152,7 @@ func main() {
 	select {
 	case <-time.After(time.Until(startTime.Add(expDuration))):
 		// Experiment finished, stop everything
-		fmt.Println("Experiment finished exiting...")
+		fmt.Println("Sending finished. Stopped sending messages.")
 		ticker.Stop()
 		for _, c := range clients {
 			c.Shutdown()
