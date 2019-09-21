@@ -85,7 +85,7 @@ func createClient(cfg *config.Config, stateFile string, try int) *catshadow.Clie
 		fmt.Println("creating remote message receiver spool")
 		cli, err = catshadow.NewClientAndRemoteSpool(sendC.GetBackendLog(), sendC, stateWorker, user, linkKey)
 		if err != nil {
-
+			return retryConnect(err, cfg, stateFile, try)
 		}
 		fmt.Println("catshadow cli successfully created")
 	}
