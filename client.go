@@ -151,7 +151,7 @@ func New(logBackend *log.Backend, mixnetClient *client.Client, stateWorker *Stat
 // read-inbox worker goroutine.
 func (c *Client) Start() {
 	c.Go(c.worker)
-	c.Go(c.readInboxWorker)
+	//c.Go(c.readInboxWorker)
 }
 
 // Returns if there are any pending contacts for this client
