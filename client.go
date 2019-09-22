@@ -169,6 +169,23 @@ func (c *Client) Start() {
 		}
 	}
 	c.Go(c.worker)
+	//c.Go(c.readInboxWorker)
+}
+
+// Returns if there are any pending contacts for this client
+func (c *Client) AnyPendingContacts() bool {
+	anyPending := false
+	for _, con := range c.contacts {
+		if (*con).isPending {
+			anyPending = true
+		}
+	}
+	return anyPending
+}
+
+// Returns the logger
+func (c *Client) GetLogger() *logging.Logger {
+	return c.log
 }
 
 // CreateRemoteSpool creates a remote spool for collecting messages
@@ -399,6 +416,18 @@ func (c *Client) doSendMessage(nickname string, message []byte) {
 		c.log.Errorf("double ratchet channel write failure: %s", err)
 	}
 	c.log.Info("Sent message to %s.", nickname)
+}
+
+func (c *Client) DoSendDropMsg() {
+	err := c.session.SendDropDecoy()
+	if err != nil {
+		c.log.Errorf("Error sending DIRECT drop decoy: %s", err)
+	}
+	c.log.Info("Sent DIRECT drop decoy message")
+}
+
+func (c *Client) SetLambdaP(lambdaP float64, lambdaPMax uint64) {
+	c.session.SetLambdaP(lambdaP, lambdaPMax)
 }
 
 // GetInbox returns the Client's inbox.
