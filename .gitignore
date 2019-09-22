@@ -1,3 +1,7 @@
 # Ignore the (no_)vendor directory since it's only renamed to not be used
 vendor/
 no_vendor/
+experiment/alice.toml
+experiment/cmd
+experiment/cli1
+experiment/run.sh
