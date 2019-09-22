@@ -64,6 +64,7 @@ type Client struct {
 
 	pandaChan         chan panda.PandaUpdate
 	addContactChan    chan addContact
+	getNicknamesChan  chan chan []string
 	sendMessageChan   chan sendMessage
 	removeContactChan chan string
 
@@ -120,7 +121,8 @@ func New(logBackend *log.Backend, mixnetClient *client.Client, stateWorker *Stat
 	c := &Client{
 		pandaChan:         make(chan panda.PandaUpdate),
 		addContactChan:    make(chan addContact),
-		sendMessageChan:   make(chan sendMessage, 5),
+		sendMessageChan:   make(chan sendMessage),
+		getNicknamesChan:   make(chan chan []string),
 		removeContactChan: make(chan string),
 		contacts:          make(map[uint64]*Contact),
 		contactNicknames:  make(map[string]*Contact),
@@ -150,6 +152,22 @@ func New(logBackend *log.Backend, mixnetClient *client.Client, stateWorker *Stat
 // Start starts the client worker goroutine and the
 // read-inbox worker goroutine.
 func (c *Client) Start() {
+	pandaCfg := c.session.GetPandaConfig()
+	if pandaCfg == nil {
+		panic("panda failed, must have a panda service configured")
+	}
+	for _, contact := range c.contacts {
+		if contact.isPending {
+			logPandaMeeting := c.logBackend.GetLogger(fmt.Sprintf("PANDA_meetingplace_%s", contact.nickname))
+			meetingPlace := pclient.New(pandaCfg.BlobSize, c.session, logPandaMeeting, pandaCfg.Receiver, pandaCfg.Provider)
+			logPandaKx := c.logBackend.GetLogger(fmt.Sprintf("PANDA_keyexchange_%s", contact.nickname))
+			kx, err := panda.UnmarshalKeyExchange(rand.Reader, logPandaKx, meetingPlace, contact.pandaKeyExchange)
+			if err != nil {
+				panic(err)
+			}
+			go kx.Run()
+		}
+	}
 	c.Go(c.worker)
 	//c.Go(c.readInboxWorker)
 }
@@ -235,9 +253,6 @@ func (c *Client) createContact(nickname string, sharedSecret []byte) error {
 	}
 	logPandaClient := c.logBackend.GetLogger(fmt.Sprintf("PANDA_meetingplace_%s", nickname))
 	meetingPlace := pclient.New(pandaCfg.BlobSize, c.session, logPandaClient, pandaCfg.Receiver, pandaCfg.Provider)
-	if err != nil {
-		return err
-	}
 	kxLog := c.logBackend.GetLogger(fmt.Sprintf("PANDA_keyexchange_%s", nickname))
 	kx, err := panda.NewKeyExchange(rand.Reader, kxLog, meetingPlace, sharedSecret, contact.keyExchange, contact.id, c.pandaChan, contact.pandaShutdownChan)
 	if err != nil {
@@ -252,6 +267,12 @@ func (c *Client) createContact(nickname string, sharedSecret []byte) error {
 	return nil
 }
 
+func (c *Client) GetNicknames() []string {
+	responseChan := make(chan []string)
+	c.getNicknamesChan <- responseChan
+	return <- responseChan
+}
+
 // RemoveContact removes a contact from the Client's state.
 func (c *Client) RemoveContact(nickname string) {
 	c.removeContactChan <- nickname
@@ -262,6 +283,11 @@ func (c *Client) doContactRemoval(nickname string) {
 	if !ok {
 		c.log.Errorf("contact removal failed, %s not found in contacts", nickname)
 		return
+	}
+	if contact.isPending {
+		if contact.pandaShutdownChan != nil {
+			close(contact.pandaShutdownChan)
+		}
 	}
 	delete(c.contactNicknames, nickname)
 	delete(c.contacts, contact.id)
@@ -304,7 +330,9 @@ func (c *Client) haltKeyExchanges() {
 	for _, contact := range c.contacts {
 		c.log.Debugf("Halting pending key exchange for '%s' contact.", contact.nickname)
 		if contact.isPending {
-			close(contact.pandaShutdownChan)
+			if contact.pandaShutdownChan != nil {
+				close(contact.pandaShutdownChan)
+			}
 		}
 	}
 }
@@ -441,40 +469,32 @@ func (c *Client) readInbox() bool {
 	return false
 }
 
-// read-inbox-worker does not take ownership of inbox.
-// instead the inbox is guarded with the mutex "c.inboxMutex".
-// also note that the call to c.readInbox blocks until it receives
-// a reply from the remote spool service.
-func (c *Client) readInboxWorker() {
+// worker goroutine takes ownership of our contacts
+func (c *Client) worker() {
 	c.readInboxPoissonTimer.Start()
 	defer c.readInboxPoissonTimer.Stop()
 	for {
 		select {
 		case <-c.HaltCh():
 			c.log.Debug("Terminating gracefully.")
+			c.haltKeyExchanges()
 			return
 		case <-c.readInboxPoissonTimer.Channel():
 			if c.readInbox() {
 				c.save()
 			}
 			c.readInboxPoissonTimer.Next()
-		}
-	}
-}
-
-// worker goroutine takes ownership of our contacts
-func (c *Client) worker() {
-	for {
-		select {
-		case <-c.HaltCh():
-			c.log.Debug("Terminating gracefully.")
-			c.haltKeyExchanges()
-			return
 		case addContact := <-c.addContactChan:
 			err := c.createContact(addContact.Name, addContact.SharedSecret)
 			if err != nil {
 				c.log.Errorf("create contact failure: %s", err.Error())
 			}
+		case responseChan := <- c.getNicknamesChan:
+			names := []string{}
+			for contact := range c.contactNicknames {
+				names = append(names, contact)
+			}
+			responseChan <- names
 		case update := <-c.pandaChan:
 			c.processPANDAUpdate(&update)
 		case sendMessage := <-c.sendMessageChan:

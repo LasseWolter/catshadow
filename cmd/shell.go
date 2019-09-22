@@ -76,17 +76,20 @@ func NewShell(client *catshadow.Client, log *logging.Logger) *Shell {
 			c.Print(red("message ID: "))
 			rawid := c.ReadLine()
 			id, err := strconv.Atoi(rawid)
-			if err != nil {
+			if err != nil || id < 0 {
 				c.Print(fmt.Sprintf("ERROR, invalid message id, must be positive integer\n"))
+			} else {
+				inbox := shell.client.GetInbox()
+				if id > len(inbox) {
+					c.Print(fmt.Sprintf("ERROR, requested message id doesn't exist\n"))
+				} else {
+					mesg := inbox[id]
+					c.Print(fmt.Sprintf("%s %s\n%s", mesg.Nickname, mesg.ReceivedTime, mesg.Plaintext))
+					c.Print("\n")
+				}
 			}
-
-			inbox := shell.client.GetInbox()
-			mesg := inbox[id]
-			c.Print(fmt.Sprintf("%s %s\n%s", mesg.Nickname, mesg.ReceivedTime, mesg.Plaintext))
-			c.Print("\n")
 		},
 	})
-
 	shell.ishell.AddCmd(&ishell.Cmd{
 		Name: "delete_contact",
 		Help: "Delete a new communications contact",
@@ -116,6 +119,21 @@ func NewShell(client *catshadow.Client, log *logging.Logger) *Shell {
 		},
 	})
 	shell.ishell.AddCmd(&ishell.Cmd{
+		Name: "list_contacts",
+		Help: "List contacts.",
+		Func: func(c *ishell.Context) {
+			// disable the '>>>' for cleaner same line input.
+			c.ShowPrompt(false)
+			defer c.ShowPrompt(true) // yes, revert after login.
+			nicknames := shell.client.GetNicknames()
+			c.Print(fmt.Sprintf("Nickname\n"))
+			for _, name := range nicknames {
+				c.Print(fmt.Sprintf("%s\n", name))
+			}
+			c.Print("\n")
+		},
+	})
+	shell.ishell.AddCmd(&ishell.Cmd{
 		Name: "send_message",
 		Help: "Send a message.",
 		Func: func(c *ishell.Context) {
@@ -142,6 +160,11 @@ func NewShell(client *catshadow.Client, log *logging.Logger) *Shell {
 			shell.Halt()
 		},
 	})
+
+	halt := func(context *ishell.Context) {
+		shell.Halt()
+	}
+	shell.ishell.EOF(halt)
 
 	return shell
 }

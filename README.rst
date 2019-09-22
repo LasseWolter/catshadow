@@ -15,6 +15,83 @@ Katzenpost mix network. It not only uses strong modern end to end
 encryption (PANDA + Signal Double Ratchet), but it is also designed
 to reduce the amount of metadata leaked onto the network.
 
+usage
+-----
+
+::
+
+  Usage of ../bin/catshadow:
+    -f string
+        Path to the client config file. (default "katzenpost.toml")
+    -g	Generate the state file and then run client.
+    -s string
+        The catshadow state file path. (default "catshadow_statefile")
+
+Firstly, generate your account and remote spool by running catshadow
+with the `-g` option, like so::
+
+   catshadow -f alice.toml -s alice.statefile -g
+
+All subsequent runs must not include the **-g** option.
+
+The following configuration file can be used with our current
+test mix network, however it assumes that you have
+tor configured with the socks port listening on 127.0.0.1 port 9050.
+::
+
+  [UpstreamProxy]
+  Type = "socks5"
+  Network = "tcp"
+  Address = "127.0.0.1:9050"
+
+  [Logging]
+  Disable = false
+  Level = "DEBUG"
+  File = "/home/user/catshadow.log"
+
+  [NonvotingAuthority]
+  Address = "37.218.242.147:29485"
+  PublicKey = "DFD5E1A26E9B3EF7B3DA0102002B93C66FC36B12D14C608C3FBFCA03BF3EBCDC"
+
+  [Account]
+  Provider = "idefix"
+  ProviderKeyPin = "PZWT07fWnLsZr8OGibNlvK34Cr/m98T+awhZrr53IJI="
+
+  [Registration]
+  Address = "6cwob5th2li7zxqp.onion:29484"
+  [Registration.Options]
+    Scheme = "http"
+    UseSocks = true
+    SocksNetwork = "tcp"
+    SocksAddress = "127.0.0.1:9050"
+
+  [Debug]
+  DisableDecoyLoops = true
+  CaseSensitiveUserIdentifiers = false
+  PollingInterval = 1
+
+  [Panda]
+  Receiver = "+panda"
+  Provider = "ramix"
+  BlobSize = 2000
+
+
+Once you receive the catshadow command prompt **>>>**
+you can add a contact with the **add_contact** command.
+Your contact and you must enter the exact same passphrase.
+Doing so facilitates the exchange of cryptographic key material
+and message spool identities.
+
+The PANDA exchange is complete once the catshadow instance prints
+a log message like this:
+::
+  PANDA exchange completed
+
+After the exchange is complete a message can be sent to the contact
+using the **send_message** command. The **list_inbox** lists received
+messages and their message ID. The **read_inbox** command is used
+to read messages specified by message ID.
+
 
 design
 ------
@@ -39,8 +116,8 @@ without revealing which sender they are. Finally, the revocation
 behavior is such that the recipient can revoke one or more senders
 without involving the remaining senders.
 
-Clients make use of a Sphinx SURB based protocol to retreive messages
-from their remote spool service. The mix network has several Providers
+Clients make use of a Sphinx SURB based protocol to retrieve messages
+from their remote spool service. The mix network has several providers
 which operate spool services which clients can interact with. The
 spool service is in fact a seperate process which uses our CBOR/HTTP
 over unix domain socket plugin system to communicate with the mix server.
@@ -59,8 +136,8 @@ remote message spool.
 
 Katzenpost is a variant of the Loopix design and as such makes use of
 the Poisson mix strategy and therefore must be properly tuned. Tuning
-of the Poisson mix strategy as not been publicly solved yet but I
-suspect the solution has something to do with a descrete network event
+of the Poisson mix strategy has not been publicly solved yet but I
+suspect the solution has something to do with a discrete network event
 simulator and possibly some machine learning algorithms as
 well. Perhaps we all should consider the tuning of this mixnet
 messaging system as half of it's design.
